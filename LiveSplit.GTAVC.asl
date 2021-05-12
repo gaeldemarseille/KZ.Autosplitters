@@ -231,11 +231,6 @@ startup
 		var parent = missions;
 		foreach (var address in vars.missionAddresses[missions]) {
 			settings.Add(address.Value, defaultValue, address.Value, parent);
-			// Adding a separate check for stadium to be able to split for all three.
-			if (address.Value == "Hotring" || address.Value == "Bloodring" || address.Value == "Dirtring") {
-				vars.stadList.Add(address.Value);
-			}
-			vars.missionList.Add(address.Value);
 		}
 	};
 	
@@ -259,7 +254,6 @@ startup
 				continue;
 			}
 			settings.Add(address.Value + " (start)", defaultValue, address.Value, parent + " (start)");
-			vars.missionStartList.Add(address.Value + " (start)");
 		}
 	};
 	
@@ -341,7 +335,6 @@ startup
 			settings.CurrentDefaultParent = "Odd Jobs";
 		}
 		settings.Add(mission.Key, false, mission.Key);
-		vars.missionList.Add(mission.Key);
 	}
 	
 	// Both SSA objectives
@@ -366,7 +359,6 @@ startup
 		// Add seperate settings depending on player preference. Split for each collectible gathered, or when all are gathered.
 		settings.Add(item.Key+"All", false, item.Key+" (All Done)");
 		settings.Add(item.Key+"Each", false, item.Key+" (Each)");
-		vars.collectibleList.Add(item.Key);
 	}
 	settings.CurrentDefaultParent = null;	
 	
@@ -388,7 +380,7 @@ startup
 	
 	// Used later to count stadium missions.
 	vars.stadAllCount = 0;
-	
+
 }
 
 init
@@ -435,53 +427,67 @@ init
 
 	foreach (var address in vars.missionAddresses) {
 		foreach (var m in address.Value) {
-					if (address.Key == "RC Top-Fun" && vars.offset == -0x2FF8) { // RC mission offsets are different from all other addresses in JP
-					vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(m.Key+vars.offset+8)) { Name = m.Value });
-					}
-					else {
-					vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(m.Key+vars.offset)) { Name = m.Value });
-					}
+			if(settings[m.Value] || settings[m.Value + " (start)"]) {
+				if(settings[m.Value + " (start)"]) {
+					vars.missionStartList.Add(m.Value + " (start)");
+				}else {
+					vars.missionList.Add(m.Value);
+				}
+				if (address.Key == "RC Top-Fun" && vars.offset == -0x2FF8) { // RC mission offsets are different from all other addresses in JP
+				vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(m.Key+vars.offset+8)) { Name = m.Value });
+				}
+				else {
+				vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(m.Key+vars.offset)) { Name = m.Value });
+				}
+			}
+			if(settings["stadAll"] &&(address.Value == "Hotring" || address.Value == "Bloodring" || address.Value == "Dirtring" )){
+				// Adding a separate check for stadium to be able to split for all three.
+				vars.stadList.Add(address.Value);
+			}
 		}
 	}
+
 	
 	// More...
 	foreach (var address in vars.mission2) {
-		vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(address.Value+vars.offset)) { Name = address.Key });
+		if(settings[address.Key]) {
+			vars.missionList.Add(address.Key);
+			vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(address.Value+vars.offset)) { Name = address.Key });
+		}
 	}
 	
 	// ...and even more.
 	foreach (var item in vars.collectibles) {
 		var type = item.Key;
 		var addr = item.Value+vars.offset;
-		vars.memoryWatchers.Add(
-			new MemoryWatcher<int>(
-				new DeepPointer(addr)
-			) { Name = type }
-		);
+		if(settings[type + "Each"] || settings[type + "All"]) {
+			vars.collectibleList.Add(type);
+			vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(addr)) { Name = type });
+		}
 	}
 	
-	// Add correct memory address for the "game state" to the watcher list.
-	var gameStateAddress = (version == "Japanese") ? 0x5B2F18 : 0x5B5F08+vars.offset;
-	vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(gameStateAddress)) { Name = "gameState" });
-	
-	// Japanese game state is shifted by +4 (due to more intro movies) so needs to be taken into account later.
-	vars.gameStateShift = (version == "Japanese") ? 4 : 0;
-	
+	if(settings.StartEnabled || settings.ResetEnabled) {
+		// Add correct memory address for the "game state" to the watcher list.
+		var gameStateAddress = (version == "Japanese") ? 0x5B2F18 : 0x5B5F08+vars.offset;
+		vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(gameStateAddress)) { Name = "gameState" });
+		
+		// Japanese game state is shifted by +4 (due to more intro movies) so needs to be taken into account later.
+		vars.gameStateShift = (version == "Japanese") ? 4 : 0;
+	}
+
 	// Used to know when the player loads a saved game. 0 if so and 1 if not.
 	// This is needed so the timer doesn't start if you load a save game after the initial boot up.
-	vars.memoryWatchers.Add(new MemoryWatcher<byte>(new DeepPointer(0x574B74+vars.offset)) { Name = "notLoadingCheck" });
-	
+	if(settings.StartEnabled) {
+		vars.memoryWatchers.Add(new MemoryWatcher<byte>(new DeepPointer(0x574B74+vars.offset)) { Name = "notLoadingCheck" });
+	}
 	// Memory addresses used for the final split of Any% (see below).
-	vars.memoryWatchers.Add(new MemoryWatcher<byte>(new DeepPointer(0x426104+vars.offset)) { Name = "kyfc1" });
-	vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(0x425DAC+vars.offset)) { Name = "kyfc2" });
-	vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(0x426100+vars.offset)) { Name = "kyfc3" });
-	
+	if(settings["btgFinalSplit"]) {
+		vars.memoryWatchers.Add(new MemoryWatcher<byte>(new DeepPointer(0x426104+vars.offset)) { Name = "kyfc1" });
+		vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(0x425DAC+vars.offset)) { Name = "kyfc2" });
+		vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(0x426100+vars.offset)) { Name = "kyfc3" });
+	}
 	// This is all "split at start of mission" address tracking.
 	// ---------------------------------------------------------
-	
-	var missionNameAddress = (version == "Japanese") ? 0x38A008 : 0x38D000+vars.offset; 
-	vars.memoryWatchers.Add(new StringWatcher(new DeepPointer(missionNameAddress), 64) { Name = "missionName"});
-
 /* 	// A list of names and memory addresses for OMFs, both the main one and ones for side missions and such.
 	vars.OMFList = new List<string> {"OMFParamedic", "OMFFirefighter", "OMFTaxi", "OMFRampage", "OMFPhonecall", "OMFSaveGame"};
 	vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(0x421764+vars.offset)) { Name = "OMF" });
@@ -502,9 +508,15 @@ init
 	vars.memoryWatchers.Add(new MemoryWatcher<int>(new DeepPointer(VigilanteTimerAddress)) { Name = "VigilanteTimer" }); */
 	// End "split at start of mission" address tracking.
 	// ---------------------------------------------------------
+	if(vars.missionStartList.Count>0) {
+		var missionNameAddress = (version == "Japanese") ? 0x38A008 : 0x38D000+vars.offset; 
+		vars.memoryWatchers.Add(new StringWatcher(new DeepPointer(missionNameAddress), 64) { Name = "missionName"});
+	}
 	
 	// Watch for load/saving to prevent splitting after load (this can happen if memory addresses change)
-	vars.memoryWatchers.Add(new MemoryWatcher<bool>(new DeepPointer(0x38D724+vars.offset)) { Name = "Loading" });
+	if(settings.SplitEnabled) {
+		vars.memoryWatchers.Add(new MemoryWatcher<bool>(new DeepPointer(0x38D724+vars.offset)) { Name = "Loading" });
+	}
 }
 
 update
@@ -532,8 +544,6 @@ update
 
 split
 {
-	vars.doSplit = false;
-	
 	if (vars.memoryWatchers["Loading"].Current) {
 		vars.lastLoad = Environment.TickCount;
 		return false;
@@ -558,25 +568,25 @@ split
 	// Goes through all the missions in the list, checks if their setting is enabled, if the mission has just been passed
 	// and also if we haven't split for this mission yet. If so, splits.
 	foreach (var mission in vars.missionList) {
-		// seperate check if we are splitting for all stadium missions.
-		if (settings["stadAll"]) {
-			foreach (var stadEvent in vars.stadList) {
-				if (vars.memoryWatchers[stadEvent].Current > vars.memoryWatchers[stadEvent].Old && !vars.split.Contains(stadEvent)) {
-					vars.split.Add(stadEvent);
-					// add the completed stadium mission to splits list, and increment total counter by 1.
-					vars.stadAllCount = vars.stadAllCount + 1;
-					if (vars.stadAllCount == 3) {
-						// when all 3 are done, split!
-						vars.doSplit = true;
-					}
-				}
-			}
-		}
-		if (settings[mission] && vars.memoryWatchers[mission].Current > vars.memoryWatchers[mission].Old && !vars.split.Contains(mission)) {
+		if (vars.memoryWatchers[mission].Current > vars.memoryWatchers[mission].Old && !vars.split.Contains(mission)) {
 			vars.split.Add(mission);
-			vars.doSplit = true;
+			return true;
 		}
 	}
+
+	// seperate check if we are splitting for all stadium missions.
+	foreach (var stadEvent in vars.stadList) {
+		if (vars.memoryWatchers[stadEvent].Current > vars.memoryWatchers[stadEvent].Old && !vars.split.Contains(stadEvent)) {
+			vars.split.Add(stadEvent);
+			// add the completed stadium mission to splits list, and increment total counter by 1.
+			vars.stadAllCount = vars.stadAllCount + 1;
+			if (vars.stadAllCount == 3) {
+				// when all 3 are done, split!
+				return true;
+			}
+		}
+	}
+
 
 	// split on mission start stuff
 	foreach (var mission in vars.missionStartList) {
@@ -596,9 +606,9 @@ split
 				missionName = "Ice Cream Mission";
 			}
 		}
-		if (settings[mission] && vars.memoryWatchers["missionName"].Current != vars.memoryWatchers["missionName"].Old && missionWatcher == missionName && !vars.split.Contains(mission)) {
+		if (vars.memoryWatchers["missionName"].Current != vars.memoryWatchers["missionName"].Old && missionWatcher == missionName && !vars.split.Contains(mission)) {
 			vars.split.Add(mission);
-			vars.doSplit = true;
+			return true;
 		}
 	}
 	
@@ -622,7 +632,7 @@ split
 					var splitName = item+" "+cvalue.Current;
 					if (!vars.split.Contains(splitName)) {
 						vars.split.Add(splitName);
-						vars.doSplit = true;
+						return true;
 					}
 				}
 			}
@@ -630,7 +640,7 @@ split
 					var splitName = item+" "+cvalue.Current;
 					if (!vars.split.Contains(splitName)) {
 						vars.split.Add(splitName);
-						vars.doSplit = true;
+						return true;
 					}				
 			}
 		}
@@ -665,12 +675,10 @@ split
 	// Splits for the final split of Any%.
 	if (settings["btgFinalSplit"] && vars.memoryWatchers["kyfc1"].Current == 245 && vars.memoryWatchers["kyfc2"].Current > vars.memoryWatchers["kyfc3"].Current && !vars.split.Contains("btgFinalSplit")) {
 		vars.split.Add("btgFinalSplit");
-		vars.doSplit = true;
-	}
-	
-	if (vars.doSplit) {
 		return true;
 	}
+	
+	return false;
 }
 
 start
