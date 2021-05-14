@@ -374,6 +374,9 @@ startup
 	settings.Add("btgFinalSplit", false, "Any% Final Split");
 	settings.SetToolTip("btgFinalSplit", "Splits once you lose control on \"Keep Your Friends Close\".");
 	
+	settings.Add("dynamicNonLinearSplitting", false, "[Experimental] Dynamic non-linear splitting");
+	settings.SetToolTip("dynamicNonLinearSplitting", "Change splits order if objectives are done in a different order, assuming they are properly named");
+
 	// State checking
 	// --------------
 	
@@ -532,8 +535,25 @@ update
 
 split
 {
-	vars.doSplit = false;
-	
+	Action<string> dynamicallyReorderSplit = (splitToSplit) => {
+		if(settings["dynamicNonLinearSplitting"]){
+			var CurrentSplitIndex = timer.CurrentSplitIndex;
+			var CurrentSplit = timer.CurrentSplit;
+			if (!CurrentSplit.Name.ToLowerInvariant().Contains(splitToSplit.ToLowerInvariant())) {
+				for (int i = CurrentSplitIndex + 1; i < timer.Run.Count; i++) {
+					if (timer.Run[i].Name.ToLowerInvariant().Contains(splitToSplit.ToLowerInvariant())) {
+						var ActualSplit = timer.Run[i];
+						ActualSplit.SegmentHistory.Clear();
+						CurrentSplit.SegmentHistory.Clear();
+						timer.Run.Remove(ActualSplit);
+						timer.Run.Insert(CurrentSplitIndex, ActualSplit);
+						break;
+					}
+				}
+			}
+		}
+	};
+
 	if (vars.memoryWatchers["Loading"].Current) {
 		vars.lastLoad = Environment.TickCount;
 		return false;
@@ -567,14 +587,16 @@ split
 					vars.stadAllCount = vars.stadAllCount + 1;
 					if (vars.stadAllCount == 3) {
 						// when all 3 are done, split!
-						vars.doSplit = true;
+						dynamicallyReorderSplit("stadium");
+						return true;
 					}
 				}
 			}
 		}
 		if (settings[mission] && vars.memoryWatchers[mission].Current > vars.memoryWatchers[mission].Old && !vars.split.Contains(mission)) {
 			vars.split.Add(mission);
-			vars.doSplit = true;
+			dynamicallyReorderSplit(mission);
+			return true;
 		}
 	}
 
@@ -598,7 +620,8 @@ split
 		}
 		if (settings[mission] && vars.memoryWatchers["missionName"].Current != vars.memoryWatchers["missionName"].Old && missionWatcher == missionName && !vars.split.Contains(mission)) {
 			vars.split.Add(mission);
-			vars.doSplit = true;
+			dynamicallyReorderSplit(missionName);
+			return true;
 		}
 	}
 	
@@ -606,23 +629,37 @@ split
 	foreach (var item in vars.collectibleList) {
 		var cvalue = vars.memoryWatchers[item.ToString()];
 		if (cvalue.Current > cvalue.Old) {
+			int max;
+			String splitToSplit;
+			switch (item)
+			{
+				case "Rampages":
+					max = 35;
+					splitToSplit = "Rampage";
+					break;
+				case "Stunt Jumps":
+					max = 36;
+					splitToSplit = "USJ";
+					break;
+				case "Packages":
+					max = 100;
+					splitToSplit = "Package";
+					break;
+				case "Robberies":
+					max = 15;
+					splitToSplit = "Robbery";
+					break;
+				default:
+					continue;
+			}
 			if (settings[item+"All"]) // adjusting the max count for each collectible type based on what we want to split.
 			{
-				int max = 15;
-				if (item == "Rampages")	{
-					max = 35;
-				}
-				if (item == "Stunt Jumps") {
-					max = 36;
-				}
-				if (item == "Packages")	{
-					max = 100;
-				}
 				if (cvalue.Current == max && cvalue.Old == max-1) {
 					var splitName = item+" "+cvalue.Current;
 					if (!vars.split.Contains(splitName)) {
 						vars.split.Add(splitName);
-						vars.doSplit = true;
+						dynamicallyReorderSplit(splitToSplit);
+						return true;
 					}
 				}
 			}
@@ -630,7 +667,8 @@ split
 					var splitName = item+" "+cvalue.Current;
 					if (!vars.split.Contains(splitName)) {
 						vars.split.Add(splitName);
-						vars.doSplit = true;
+						dynamicallyReorderSplit(splitToSplit);
+						return true;
 					}				
 			}
 		}
@@ -665,12 +703,11 @@ split
 	// Splits for the final split of Any%.
 	if (settings["btgFinalSplit"] && vars.memoryWatchers["kyfc1"].Current == 245 && vars.memoryWatchers["kyfc2"].Current > vars.memoryWatchers["kyfc3"].Current && !vars.split.Contains("btgFinalSplit")) {
 		vars.split.Add("btgFinalSplit");
-		vars.doSplit = true;
-	}
-	
-	if (vars.doSplit) {
+		dynamicallyReorderSplit("Keep your Friends Close...");
 		return true;
 	}
+
+	return false;	
 }
 
 start
